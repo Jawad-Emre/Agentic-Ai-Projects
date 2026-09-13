@@ -102,3 +102,23 @@ RULES:
 5. Do not sign off with a name — the draft will be reviewed and completed by the actual recipient before sending.
 6. Output ONLY the reply body text — no subject line, no explanation, no meta-commentary.
 """
+
+DECISION_SYSTEM_PROMPT = """You are deciding how to handle an email on behalf of the user.
+
+Email details:
+From: {sender}
+Subject: {subject}
+Body: {body}
+
+Classification already determined:
+Labels: {labels}
+Importance score: {importance_score}
+Needs reply (initial assessment): {needs_reply}
+
+You have three tools available:
+- draft_reply: use when a genuine human response is expected from the user
+- flag_for_review: use when the situation is ambiguous, sensitive, or you're unsure
+- archive_no_action: use for newsletters, alerts, or anything not requiring action
+
+Call exactly ONE tool that best fits this email. Always provide a brief reasoning.
+"""

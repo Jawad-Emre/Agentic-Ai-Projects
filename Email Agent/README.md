@@ -29,6 +29,8 @@ This agent automates the sorting, surfaces what's actually important, and drafts
 - **Multi-label classification** — 21 categories covering jobs, education, finance, urgency, and more (see full list below)
 - **Real Gmail labels** — classifications are written back as actual, visible Gmail labels, auto-created on first use
 - **Human-in-the-loop drafting** — the agent writes reply drafts for emails needing a response, saved directly to Gmail's Drafts folder. **It never auto-sends.** You review, edit, and send manually
+- 🤖 **Genuine agentic decision-making** — an LLM bound with real tools (`draft_reply`, `flag_for_review`, `archive_no_action`) chooses the action per email, not a hardcoded rule
+- ✍️ Drafts replies for human approval — never auto-sends
 - **Idempotent by design** — a Supabase-backed tracking layer ensures no email is ever reclassified or re-drafted across runs, even if a run partially fails
 - **Multi-model rate-limit resilience** — automatically falls back across multiple free-tier Gemini/Gemma models if one hits its quota, since each model has an independent rate limit
 - **Fully autonomous scheduling** — runs 6x/day via GitHub Actions, at zero cost, with no server to maintain
@@ -52,18 +54,30 @@ Emails can carry multiple labels — e.g., a shortlisting email might be tagged 
 
 ![Architecture diagram](screenshots/email_agent_architecture.png)
 
-The agent runs as a scheduled LangGraph pipeline: fetching unread emails, classifying them in parallel across a multi-model fallback chain, applying Gmail labels, drafting replies only where genuinely needed, and recording state in Supabase for idempotency across runs.
+The agent runs as a scheduled LangGraph pipeline with a genuine agentic decision core: after classification and labeling, an LLM is given real tools (`draft_reply`, `flag_for_review`, `archive_no_action`) and **decides for itself** which action fits each email — this isn't a hardcoded if/else, the model actively chooses and calls the tool via LangChain's function-calling interface.
 
+1. **Fetch Unread** — Pulls unread emails from Gmail via the Gmail API
+2. **Filter Seen** — Checks Supabase to skip emails already processed in a prior run
+3. **Classify** — Each email is classified in parallel (`Send()` fan-out) across 21 labels, an importance score, and a `needs_reply` flag, using a Gemini/Gemma fallback chain
+4. **Apply Labels** — Classification results are written back as real Gmail labels
+5. **Agent Decision** — Each email is handed to an LLM bound with three tools. The model reasons about the email and calls exactly one:
+   - `draft_reply` — writes a reply and saves it to Gmail Drafts
+   - `flag_for_review` — labels it `Needs-Reply` for manual attention, without drafting anything
+   - `archive_no_action` — takes no action (newsletters, alerts, etc.)
+6. **Mark Processed** — Once handled, the email ID is recorded in Supabase for idempotency across future runs
 
-**Key LangGraph patterns used:**
+**Human-in-the-loop stays intact regardless of the agent's choice** — `draft_reply` only ever creates a Gmail draft. Nothing is ever sent automatically.
+
+**Key LangGraph & agentic patterns used:**
 
 | Pattern | Where | Why |
 |---|---|---|
-| `Send()` fan-out | Classification, drafting | Parallel per-email processing instead of sequential |
-| Conditional edges | `needs_reply` routing | Only drafts replies where genuinely needed |
+| `Send()` fan-out | Classification, per-email agent loop | Parallel processing instead of sequential |
+| Tool-calling (`bind_tools`) | Agent decision node | The LLM genuinely chooses the action — not a fixed if/else |
+| Multi-model fallback | Both classification and tool-calling | Resilience against free-tier rate limits, confirmed working across all 4 models |
 | State reducers | `Annotated[list, add]` | Merges parallel `Send()` outputs safely |
-| Human-in-the-loop | Draft-only, never auto-send | Keeps a human decision point before any email leaves the inbox |
----
+| Human-in-the-loop | Draft-only, never auto-send | A human decision point before anything leaves the inbox, regardless of agent choice |
+
 
 ## 🛠️ Tech Stack
 

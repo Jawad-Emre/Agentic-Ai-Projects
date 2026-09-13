@@ -4,6 +4,7 @@ State schemas for the email agent graph.
 
 from typing import TypedDict, Annotated
 from operator import add
+from langgraph.graph.message import add_messages
 
 
 class EmailState(TypedDict):
@@ -16,9 +17,10 @@ class EmailState(TypedDict):
     importance_score: float
     needs_reply: bool
     reasoning: str
+    messages: Annotated[list, add_messages]
 
 
 class GraphState(TypedDict):
     raw_emails: list[dict]
-    processed: Annotated[list[EmailState], add]  # merges parallel Send() outputs
-    drafted: Annotated[list[dict], add]
+    processed: Annotated[list[EmailState], add]
+    handled: Annotated[list[dict], add]

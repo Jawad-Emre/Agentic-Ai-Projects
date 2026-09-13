@@ -17,20 +17,6 @@ def route_to_classification(state: dict):
         for email in state["raw_emails"]
     ]
 
-
-def route_to_drafting(state: dict):
-    """
-    After classification, fans out ONLY emails flagged needs_reply=True
-    to draft_reply. Emails not needing a reply skip straight past.
-    """
-    needs_reply_emails = [
-        email for email in state["processed"] if email["needs_reply"]
-    ]
-
-    if not needs_reply_emails:
-        return "skip_drafting"  # named edge for the "nothing to draft" case
-
-    return [
-        Send("draft_reply_node", email)
-        for email in needs_reply_emails
-    ]
+def route_to_agent(state: dict):
+    """After labels are applied, fan out each email to the agent loop."""
+    return [Send("run_agent_for_email", email) for email in state["processed"]]
