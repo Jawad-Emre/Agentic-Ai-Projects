@@ -17,9 +17,12 @@ def main():
         "drafted": []
     })
 
+    unique_processed = len({e["id"] for e in result.get("processed", [])})
+    unique_drafted = len({e["id"] for e in result.get("drafted", [])})
+
     print("\n=== Run Summary ===")
-    print(f"Emails processed: {len(result.get('processed', []))}")
-    print(f"Drafts created: {len(result.get('drafted', []))}")
+    print(f"Emails processed: {unique_processed}")
+    print(f"Drafts created: {unique_drafted}")
     print("=== Email Agent: Run complete ===")
 
 
