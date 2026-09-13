@@ -48,68 +48,21 @@ The agent classifies each email into one or more of the following:
 Emails can carry multiple labels — e.g., a shortlisting email might be tagged both `Shortlisted` and `Urgent-Reply-Needed`.
 
 ---
-# Architecture
+## 🏗️ Architecture
 
-┌─────────────────────────────────────────────────────────────┐
-│ ⏰ GitHub Actions (Scheduled Trigger — 6x/day, zero cost) │
-└───────────────────────────┬─────────────────────────────────┘
-│
-▼
-┌─────────────────────┐
-│ 📥 Fetch Unread │ Gmail API
-└──────────┬──────────┘
-│
-▼
-┌─────────────────────┐
-│ 🗂️ Filter Seen │ Supabase idempotency check
-└──────────┬──────────┘
-│
-⚡ Send() Fan-Out (parallel)
-│
-┌──────────▼──────────┐
-│ 🧠 Classify Email │ Gemini/Gemma
-│ (multi-label + │ (auto-fallback across
-│ importance + │ 4 free-tier models)
-│ needs_reply) │
-└──────────┬──────────┘
-│
-▼
-┌─────────────────────┐
-│ 🏷️ Apply Labels │ Gmail API
-└──────────┬──────────┘
-│
-needs_reply == True?
-│
-┌──────────┴──────────┐
-▼ ▼
-┌─────────────────┐ ┌─────────────────┐
-│ ✍️ Draft Reply │ │ ⏭️ Skip │
-│ (Send() fan-out)│ │ (no reply │
-└────────┬─────────┘ │ needed) │
-│ └────────┬─────────┘
-▼ │
-┌─────────────────┐ │
-│ 📝 Save Draft │ │
-│ to Gmail │ │
-│ (⚠️ never sent — │ │
-│ human approves) │ │
-└────────┬─────────┘ │
-└──────────┬────────────┘
-▼
-┌─────────────────────┐
-│ ✅ Mark Processed │ Supabase
-└─────────────────────┘
+![Architecture diagram](screenshots/email_agent_architecture.png)
 
+The agent runs as a scheduled LangGraph pipeline: fetching unread emails, classifying them in parallel across a multi-model fallback chain, applying Gmail labels, drafting replies only where genuinely needed, and recording state in Supabase for idempotency across runs.
 
 
 **Key LangGraph patterns used:**
+
 | Pattern | Where | Why |
 |---|---|---|
 | `Send()` fan-out | Classification, drafting | Parallel per-email processing instead of sequential |
 | Conditional edges | `needs_reply` routing | Only drafts replies where genuinely needed |
 | State reducers | `Annotated[list, add]` | Merges parallel `Send()` outputs safely |
 | Human-in-the-loop | Draft-only, never auto-send | Keeps a human decision point before any email leaves the inbox |
-
 ---
 
 ## 🛠️ Tech Stack
@@ -126,28 +79,31 @@ needs_reply == True?
 ---
 
 ## 📂 Project Structure
+
+```text
 Email Agent/
-├── main.py # Entry point
+├── main.py                    # Entry point
 ├── requirements.txt
 ├── src/
-│ ├── auth/gmail_auth.py # OAuth refresh-token flow
-│ ├── gmail/
-│ │ ├── fetch.py # Fetch + parse unread emails
-│ │ ├── labels.py # Apply Gmail labels
-│ │ └── drafts.py # Create threaded Gmail drafts
-│ ├── llm/
-│ │ ├── client.py # Multi-model fallback LLM client
-│ │ └── prompts.py # Classification + draft prompts
-│ ├── graph/
-│ │ ├── state.py # LangGraph state schema
-│ │ ├── nodes.py # All graph nodes
-│ │ ├── edges.py # Send() routing logic
-│ │ └── build_graph.py # Compiled graph
-│ └── storage/
-│ └── processed_store.py # Supabase idempotency layer
+│   ├── auth/
+│   │   └── gmail_auth.py      # OAuth refresh-token flow
+│   ├── gmail/
+│   │   ├── fetch.py           # Fetch + parse unread emails
+│   │   ├── labels.py          # Apply Gmail labels
+│   │   └── drafts.py          # Create threaded Gmail drafts
+│   ├── llm/
+│   │   ├── client.py          # Multi-model fallback LLM client
+│   │   └── prompts.py         # Classification + draft prompts
+│   ├── graph/
+│   │   ├── state.py           # LangGraph state schema
+│   │   ├── nodes.py           # All graph nodes
+│   │   ├── edges.py           # Send() routing logic
+│   │   └── build_graph.py     # Compiled graph
+│   └── storage/
+│       └── processed_store.py # Supabase idempotency layer
 └── .github/workflows/
-└── email_agent.yml # Scheduled GitHub Actions workflow
-
+    └── email_agent.yml        # Scheduled GitHub Actions workflow
+```
 
 ---
 
