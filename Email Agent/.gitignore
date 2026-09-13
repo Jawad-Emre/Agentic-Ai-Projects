@@ -1,0 +1,25 @@
+# Secrets & credentials
+.env
+credentials.json
+token.json
+*.pickle
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+env/
+
+# State/data (don't commit local processed-email tracking)
+data/processed_ids.db
+data/*.db
+data/*.json
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
