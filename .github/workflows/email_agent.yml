@@ -3,11 +3,10 @@ name: Email Agent
 on:
   push:
     branches:
-      - master
+      - main   # change this if you’re pushing to another branch
   schedule:
     - cron: '0 5,8,11,14,17,20 * * *'
   workflow_dispatch:
-
 
 jobs:
   run-agent:
