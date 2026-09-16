@@ -26,14 +26,16 @@ This agent automates the sorting, surfaces what's actually important, and drafts
 
 ## ✨ Features
 
-- **Multi-label classification** — 21 categories covering jobs, education, finance, urgency, and more (see full list below)
+- **Multi-label classification** — 21 categories covering jobs, education, finance, urgency, and more
 - **Real Gmail labels** — classifications are written back as actual, visible Gmail labels, auto-created on first use
-- **Human-in-the-loop drafting** — the agent writes reply drafts for emails needing a response, saved directly to Gmail's Drafts folder. **It never auto-sends.** You review, edit, and send manually
-- 🤖 **Genuine agentic decision-making** — an LLM bound with real tools (`draft_reply`, `flag_for_review`, `archive_no_action`) chooses the action per email, not a hardcoded rule
-- ✍️ Drafts replies for human approval — never auto-sends
-- **Idempotent by design** — a Supabase-backed tracking layer ensures no email is ever reclassified or re-drafted across runs, even if a run partially fails
-- **Multi-model rate-limit resilience** — automatically falls back across multiple free-tier Gemini/Gemma models if one hits its quota, since each model has an independent rate limit
-- **Fully autonomous scheduling** — runs 6x/day via GitHub Actions, at zero cost, with no server to maintain
+- **Genuine agentic decision-making** — an LLM bound with real tools (`draft_reply`, `flag_for_review`, `archive_no_action`) reasons about each email and chooses the action itself, not a hardcoded rule
+- **Deterministic priority protection** — high-stakes emails (interviews, offers, finance alerts, high importance score) are never left to LLM discretion; they're always flagged for human attention
+- **Human-in-the-loop drafting** — reply drafts are saved directly to Gmail's Drafts folder. **The agent never auto-sends.** You review, edit, and send manually
+- **Real archiving** — the `archive_no_action` path genuinely removes handled emails from the inbox via the Gmail API, not just a logged intention
+- **Prompt injection guards** — untrusted email content is explicitly boundaried in every prompt, reducing the risk of an email's content hijacking the agent's behavior
+- **Retry-safe idempotency** — a Supabase-backed tracking layer ensures no email is reclassified or re-drafted across runs, and failed actions are automatically retried rather than silently lost
+- **Multi-model rate-limit resilience** — automatically falls back across 4 independent free-tier Gemini/Gemma quotas
+- **Fully autonomous scheduling** — runs 6x/day via GitHub Actions on a schedule, plus automatically on every push to catch up on the latest code immediately
 
 ---
 
@@ -54,20 +56,25 @@ Emails can carry multiple labels — e.g., a shortlisting email might be tagged 
 
 ![Architecture diagram](screenshots/email_agent_architecture.png)
 
-The agent runs as a scheduled LangGraph pipeline with a genuine agentic decision core: after classification and labeling, an LLM is given real tools (`draft_reply`, `flag_for_review`, `archive_no_action`) and **decides for itself** which action fits ordinary email. A deterministic priority guard protects urgent categories and high-scoring messages before the LLM can dismiss them.
+The agent runs as a scheduled LangGraph pipeline with a genuine agentic decision core: after classification and labeling, an LLM is given real tools and **decides for itself** which action fits each email — this isn't a hardcoded if/else, the model actively reasons and calls a tool via LangChain's function-calling interface. A deterministic safety net protects high-stakes emails from being left to the model's discretion entirely.
 
-1. **Fetch Unread** — Pulls unread emails from Gmail via the Gmail API
+1. **Fetch Unread** — Pulls unread emails from Gmail via the Gmail API, with pagination to handle inboxes larger than a single API page
 2. **Filter Seen** — Checks Supabase to skip emails already processed in a prior run
-3. **Classify** — Each email is classified in parallel (`Send()` fan-out) across 21 labels, an importance score, and a `needs_reply` flag, using a Gemini/Gemma fallback chain. Email content is treated as untrusted data in prompts.
-4. **Apply Labels** — Classification results are written back as real Gmail labels
-5. **Priority Protection** — `Urgent-Reply-Needed`, `Interview-Invite`, `Shortlisted`, `Offer`, `Finance-Alert`, and scores of 0.8 or higher are marked `Needs-Reply`, starred, and marked important without relying on an LLM decision.
-6. **Agent Decision** — Other emails are handed to an LLM bound with three tools. The model reasons about the email and calls exactly one:
+3. **Classify** — Each email is classified in parallel (`Send()` fan-out) across 21 labels, an importance score, and a `needs_reply` flag, using a Gemini/Gemma fallback chain across 4 independent free-tier quotas
+4. **Apply Labels** — Classification results are written back as real Gmail labels (failed classifications are skipped rather than mislabeled)
+5. **Priority Check** — Before the LLM gets a turn, high-stakes emails (interview invites, offers, finance alerts, or importance score ≥ 0.8) are deterministically flagged `Needs-Reply` + `IMPORTANT` + `STARRED` — bypassing LLM discretion entirely for anything too important to risk
+6. **Agent Decision** *(for everything else)* — The LLM is bound with three real tools and reasons about the email, calling exactly one:
    - `draft_reply` — writes a reply and saves it to Gmail Drafts
    - `flag_for_review` — labels it `Needs-Reply` for manual attention, without drafting anything
-    - `archive_no_action` — removes the Gmail `INBOX` label for ordinary mail that needs no action
-7. **Mark Processed** — Only successfully handled email IDs are recorded in Supabase. Failed classifications or actions remain eligible for retry.
+   - `archive_no_action` — genuinely archives the email (removes it from Gmail's inbox)
+7. **Mark Processed** — Only emails where the chosen action actually succeeded are recorded in Supabase. Failures are left unmarked, so they're automatically retried on the next scheduled run instead of being silently lost
 
 **Human-in-the-loop stays intact regardless of the agent's choice** — `draft_reply` only ever creates a Gmail draft. Nothing is ever sent automatically.
+
+**Safety measures beyond the core loop:**
+- **Prompt injection guards** — untrusted email content is wrapped in explicit `<email>` tags with instructions telling the model to treat it as data, not commands
+- **Deterministic priority override** — the LLM never gets a chance to under-react to a genuinely important email; that decision is made by code, not model judgment
+- **Retry-safe idempotency** — a failed action (API error, model failure) is never marked as done, guaranteeing it's picked up again next run
 
 **Key LangGraph & agentic patterns used:**
 
@@ -75,7 +82,8 @@ The agent runs as a scheduled LangGraph pipeline with a genuine agentic decision
 |---|---|---|
 | `Send()` fan-out | Classification, per-email agent loop | Parallel processing instead of sequential |
 | Tool-calling (`bind_tools`) | Agent decision node | The LLM genuinely chooses the action — not a fixed if/else |
-| Multi-model fallback | Both classification and tool-calling | Resilience against free-tier rate limits, confirmed working across all 4 models |
+| Deterministic guardrails | Priority override, prompt injection guards | LLM discretion is bounded, not absolute, for high-stakes or adversarial input |
+| Multi-model fallback | Classification and tool-calling | Resilience against free-tier rate limits, confirmed across all 4 models |
 | State reducers | `Annotated[list, add]` | Merges parallel `Send()` outputs safely |
 | Human-in-the-loop | Draft-only, never auto-send | A human decision point before anything leaves the inbox, regardless of agent choice |
 
