@@ -3,7 +3,7 @@ from unittest.mock import Mock, patch
 
 from src.gmail.fetch import fetch_unread_emails
 from src.gmail.labels import apply_labels_to_email
-from src.graph.nodes import finalize_node, is_priority_email
+from src.graph.nodes import finalize_node, is_priority_email, apply_labels_node
 
 
 class AgentLogicTests(unittest.TestCase):
@@ -12,13 +12,14 @@ class AgentLogicTests(unittest.TestCase):
         self.assertTrue(is_priority_email({"labels": [], "importance_score": 0.8}))
         self.assertFalse(is_priority_email({"labels": ["Newsletter"], "importance_score": 0.3}))
 
+    @patch("src.graph.nodes.record_sender_memory")
     @patch("src.graph.nodes.mark_as_processed")
-    def test_finalize_marks_only_successful_actions(self, mark_as_processed):
+    def test_finalize_marks_only_successful_actions(self, mark_as_processed, record_sender_memory):
         finalize_node({
             "processed": [],
             "handled": [
-                {"id": "done", "success": True},
-                {"id": "failed", "success": False},
+                {"id": "done", "sender": "sender@example.com", "success": True},
+                {"id": "failed", "sender": "sender@example.com", "success": False},
             ],
         })
         mark_as_processed.assert_called_once_with(["done"])
@@ -50,6 +51,16 @@ class AgentLogicTests(unittest.TestCase):
         with patch("src.gmail.fetch._parse_raw_message", side_effect=lambda message: message):
             emails = fetch_unread_emails(max_results=2)
         self.assertEqual([email["id"] for email in emails], ["one", "two"])
+
+    @patch("src.graph.nodes.apply_labels_batch")
+    def test_label_failure_is_returned_for_retry(self, apply_labels_batch):
+        apply_labels_batch.return_value = ["failed"]
+        result = apply_labels_node({
+            "processed": [{"id": "failed", "classification_failed": False}],
+            "handled": [],
+            "label_failed_ids": [],
+        })
+        self.assertEqual(result["label_failed_ids"], ["failed"])
 
 
 if __name__ == "__main__":

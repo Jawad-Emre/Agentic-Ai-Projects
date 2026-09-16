@@ -1,14 +1,13 @@
-"""
-Applies classification labels to real Gmail messages via the API.
-Handles label creation (Gmail requires labels to exist before applying)
-and caches label IDs to avoid redundant API calls within a run.
-"""
+"""Apply classification labels to Gmail messages."""
+
+import logging
 
 from src.auth.gmail_auth import get_gmail_service
 
 # Cache: label name -> Gmail label ID, populated once per run
 _label_id_cache: dict[str, str] = {}
 _SYSTEM_LABEL_IDS = {"STARRED", "IMPORTANT", "INBOX"}
+logger = logging.getLogger(__name__)
 
 
 def get_or_create_label(service, label_name: str) -> str:
@@ -68,11 +67,17 @@ def archive_email(email_id: str) -> None:
     ).execute()
 
 
-def apply_labels_batch(classified_emails: list[dict]) -> None:
+def apply_labels_batch(classified_emails: list[dict]) -> list[str]:
     """
     Applies labels to a batch of already-classified emails.
     Each dict must have 'id' and 'labels' keys.
     """
+    failures = []
     for email in classified_emails:
-        apply_labels_to_email(email['id'], email['labels'])
-        print(f"Labeled '{email['subject'][:50]}' -> {email['labels']}")
+        try:
+            apply_labels_to_email(email['id'], email['labels'])
+            logger.info("Labeled '%s' -> %s", email['subject'][:50], email['labels'])
+        except Exception as error:
+            logger.exception("Labeling failed for %s", email['id'])
+            failures.append(email['id'])
+    return failures

@@ -1,6 +1,6 @@
-"""
-Graph nodes for the email agent.
-"""
+"""Graph nodes for the email agent."""
+
+import logging
 
 from src.llm.client import get_llm, MODEL_FALLBACK_CHAIN
 from src.llm.prompts import EmailClassification, CLASSIFICATION_PROMPT_TEMPLATE
@@ -12,10 +12,14 @@ from src.gmail.labels import apply_labels_batch, apply_labels_to_email
 from src.storage.processed_store import mark_as_processed
 from src.gmail.fetch import fetch_unread_emails
 from src.storage.processed_store import filter_unprocessed
+from src.storage.memory_store import get_sender_memory, record_sender_memory
 
 from langchain_core.messages import SystemMessage, HumanMessage
 from src.graph.tools import build_email_tools
 from src.llm.prompts import DECISION_SYSTEM_PROMPT
+
+
+logger = logging.getLogger(__name__)
 
 
 PRIORITY_LABELS = {
@@ -33,10 +37,6 @@ def is_priority_email(email: dict) -> bool:
         email.get("importance_score", 0) >= PRIORITY_SCORE_THRESHOLD
     )
 
-
-# Caps concurrent Gemini calls to stay under free-tier per-minute token limits.
-# Even though LangGraph's Send() fans out in parallel, this semaphore forces
-# only N classifications to actually run at once.
 
 def classify_and_score(email: dict) -> dict:
     prompt = CLASSIFICATION_PROMPT_TEMPLATE.format(
@@ -56,12 +56,12 @@ def classify_and_score(email: dict) -> dict:
             break
         except Exception as e:
             last_error = e
-            print(f"  Model '{model_name}' failed, trying next... ({str(e)[:80]})")
+            logger.warning("Classification model %s failed for %s: %s", model_name, email["id"], e)
             continue
 
     classification_failed = result is None
     if classification_failed:
-        print(f"⚠️ All models failed for '{email['subject']}': {last_error}")
+        logger.error("All classification models failed for %s: %s", email["id"], last_error)
         result = EmailClassification(
             labels=["Other"], importance_score=0.3, needs_reply=False,
             reasoning=f"All models exhausted. Last error: {str(last_error)[:100]}"
@@ -79,7 +79,7 @@ def fetch_unread_node(state: dict) -> dict:
     """Fetches unread emails and filters out already-processed ones."""
     emails = fetch_unread_emails()
     new_emails = filter_unprocessed(emails)
-    print(f"Fetched {len(emails)} unread, {len(new_emails)} are new.")
+    logger.info("Fetched %d unread, %d are new", len(emails), len(new_emails))
     return {"raw_emails": new_emails}
 
 
@@ -92,7 +92,12 @@ def run_agent_for_email(email: dict) -> dict:
     """
     if is_priority_email(email):
         apply_labels_to_email(email["id"], ["Needs-Reply", "IMPORTANT", "STARRED"])
-        return {"handled": [{**email, "action": "priority_review", "success": True}]}
+        outcome = {**email, "action": "priority_review", "success": True}
+        record_sender_memory(email["sender"], email["labels"], email["importance_score"], outcome["action"], True)
+        return {"handled": [outcome]}
+
+    memory = get_sender_memory(email["sender"])
+    memory_context = memory or "No previous sender history available."
 
     prompt = DECISION_SYSTEM_PROMPT.format(
         sender=email["sender"],
@@ -101,6 +106,7 @@ def run_agent_for_email(email: dict) -> dict:
         labels=email.get("labels", []),
         importance_score=email.get("importance_score", 0),
         needs_reply=email.get("needs_reply", False),
+        sender_memory=memory_context,
     )
     messages = [
         SystemMessage(content=prompt),
@@ -119,11 +125,11 @@ def run_agent_for_email(email: dict) -> dict:
             break
         except Exception as e:
             last_error = e
-            print(f"  Model '{model_name}' failed in decide_action: {str(e)[:200]}")
+            logger.warning("Decision model %s failed for %s: %s", model_name, email["id"], e)
             continue
 
     if response is None or not getattr(response, "tool_calls", None):
-        print(f"⚠️ No action decided for '{email.get('subject', 'UNKNOWN')}': {last_error}")
+        logger.error("No action decided for %s: %s", email["id"], last_error)
         return {"handled": [{
             **email,
             "action": "none",
@@ -142,7 +148,7 @@ def run_agent_for_email(email: dict) -> dict:
             action_taken = call["name"]
         return {"handled": [{**email, "action": action_taken, "success": True}]}
     except Exception as error:
-        print(f"⚠️ Action failed for '{email.get('subject', 'UNKNOWN')}': {error}")
+        logger.exception("Action failed for %s", email["id"])
         return {"handled": [{
             **email, "action": "none", "success": False, "error": str(error),
         }]}
@@ -151,11 +157,11 @@ def run_agent_for_email(email: dict) -> dict:
 
 def apply_labels_node(state: dict) -> dict:
     """Writes classification labels back to Gmail for all processed emails."""
-    apply_labels_batch(
+    failures = apply_labels_batch(
         email for email in state["processed"]
         if not email.get("classification_failed", False)
     )
-    return state
+    return {**state, "label_failed_ids": failures}
 
 
 
@@ -165,11 +171,23 @@ def finalize_node(state: dict) -> dict:
     Deduplicates IDs first — Send() fan-out or Gmail API quirks can
     occasionally produce the same email ID more than once in one run.
     """
+    failed_label_ids = set(state.get("label_failed_ids", []))
+    successful_handled = [
+        email for email in state.get("handled", [])
+        if email.get("success") is True and email["id"] not in failed_label_ids
+    ]
     email_ids = list({
         email["id"]
-        for email in state.get("handled", [])
-        if email.get("success") is True
+        for email in successful_handled
     })
     mark_as_processed(email_ids)
-    print(f"Marked {len(email_ids)} emails as processed.")
+    for email in successful_handled:
+        sender = email.get("sender")
+        if not sender:
+            continue
+        record_sender_memory(
+            sender, email.get("labels", []), email.get("importance_score", 0),
+            email.get("action", "unknown"), True,
+        )
+    logger.info("Marked %d emails as processed", len(email_ids))
     return state

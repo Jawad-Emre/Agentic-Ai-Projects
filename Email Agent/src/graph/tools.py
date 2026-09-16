@@ -1,9 +1,6 @@
-"""
-Tool definitions for the agentic email-handling loop.
-Tools are built per-email via a factory so each tool call acts on the
-correct email's real Gmail id/thread_id without asking the LLM to
-supply those (avoids hallucinated IDs).
-"""
+"""Tool definitions for the agentic email-handling loop."""
+
+import logging
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
@@ -11,6 +8,9 @@ from src.gmail.drafts import create_draft_reply
 from src.gmail.labels import apply_labels_to_email, archive_email
 from src.llm.client import get_llm, MODEL_FALLBACK_CHAIN
 from src.llm.prompts import DRAFT_REPLY_PROMPT_TEMPLATE
+
+
+logger = logging.getLogger(__name__)
 
 
 class ReasonInput(BaseModel):
@@ -44,7 +44,8 @@ def build_email_tools(email: dict) -> list:
                 else:
                     draft_text = content
                 break
-            except Exception:
+            except Exception as error:
+                logger.warning("Draft model %s failed for %s: %s", model_name, email["id"], error)
                 continue
 
         if not draft_text:
@@ -80,7 +81,7 @@ def build_email_tools(email: dict) -> list:
         StructuredTool.from_function(
             func=_archive_no_action,
             name="archive_no_action",
-            description="Take no action. Use for newsletters, alerts, or anything not needing a response.",
+            description="Archive the email by removing it from the inbox. Use for ordinary newsletters, alerts, or anything not needing a response.",
             args_schema=ReasonInput,
         ),
     ]

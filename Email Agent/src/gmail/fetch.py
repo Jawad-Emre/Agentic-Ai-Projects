@@ -4,11 +4,15 @@ structured dicts — ready for classification.
 """
 
 import base64
+import logging
 from email import message_from_bytes
 from src.auth.gmail_auth import get_gmail_service
 from email.header import decode_header, make_header
 
 from bs4 import BeautifulSoup
+
+
+logger = logging.getLogger(__name__)
 
 def fetch_unread_emails(max_results: int = 10) -> list[dict]:
     """
@@ -35,11 +39,15 @@ def fetch_unread_emails(max_results: int = 10) -> list[dict]:
 
     emails = []
     for msg in messages:
-        full_msg = service.users().messages().get(
-            userId='me',
-            id=msg['id'],
-            format='raw'  # raw = full MIME, needed to handle multipart bodies
-        ).execute()
+        try:
+            full_msg = service.users().messages().get(
+                userId='me',
+                id=msg['id'],
+                format='raw'  # raw = full MIME, needed to handle multipart bodies
+            ).execute()
+        except Exception:
+            logger.exception("Could not fetch Gmail message %s", msg['id'])
+            continue
 
         parsed = _parse_raw_message(full_msg)
         emails.append(parsed)

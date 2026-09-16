@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1900" viewBox="0 0 1800 1900">
+  <rect width="1800" height="1900" fill="#050505"/>
+  <style>
+    .box { stroke-width: 3; }
+    .title { font-family: Arial, Helvetica, sans-serif; font-size: 34px; font-weight: 700; text-anchor: middle; }
+    .body { font-family: Arial, Helvetica, sans-serif; font-size: 23px; text-anchor: middle; }
+    .small { font-family: Arial, Helvetica, sans-serif; font-size: 20px; text-anchor: middle; }
+    .label { font-family: Arial, Helvetica, sans-serif; font-size: 22px; font-weight: 700; fill: #d0d0d0; }
+    .arrow { stroke: #9a9a9a; stroke-width: 4; fill: none; marker-end: url(#arrow); }
+    .dashed { stroke-dasharray: 12 10; }
+  </style>
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M0,0 L12,6 L0,12 Z" fill="#9a9a9a"/>
+    </marker>
+  </defs>
+
+  <!-- CI entry -->
+  <rect x="400" y="45" width="1000" height="150" rx="34" fill="#f1eee7" stroke="#aaa69f" class="box"/>
+  <text x="900" y="105" class="title" fill="#454545">GitHub Actions</text>
+  <text x="900" y="150" class="body" fill="#66615b">Push to main / scheduled 6x daily / manual dispatch</text>
+  <path d="M900 195 L900 250" class="arrow"/>
+
+  <rect x="400" y="255" width="1000" height="145" rx="30" fill="#e8e5df" stroke="#aaa69f" class="box"/>
+  <text x="900" y="312" class="title" fill="#454545">Test gate</text>
+  <text x="900" y="357" class="body" fill="#66615b">Install pinned dependencies, run 7 unit tests</text>
+  <path d="M900 400 L900 455" class="arrow"/>
+
+  <!-- Fetch -->
+  <rect x="400" y="460" width="1000" height="150" rx="30" fill="#dceeff" stroke="#2584c6" class="box"/>
+  <text x="900" y="520" class="title" fill="#114d82">Fetch and filter</text>
+  <text x="900" y="566" class="body" fill="#246aa8">Gmail unread pages + Supabase processed-ID check</text>
+  <path d="M900 610 L900 665" class="arrow"/>
+
+  <!-- Classification -->
+  <rect x="400" y="670" width="1000" height="155" rx="30" fill="#e9e5ff" stroke="#766ce0" class="box"/>
+  <text x="900" y="730" class="title" fill="#39318c">Classify in parallel</text>
+  <text x="900" y="777" class="body" fill="#5148b7">Send() fan-out per email + Gemini/Gemma fallback</text>
+  <path d="M900 825 L900 880" class="arrow"/>
+
+  <!-- Labels -->
+  <rect x="400" y="885" width="1000" height="145" rx="30" fill="#dceeff" stroke="#2584c6" class="box"/>
+  <text x="900" y="942" class="title" fill="#114d82">Apply category labels</text>
+  <text x="900" y="987" class="body" fill="#246aa8">Gmail labels; failed messages are isolated and retried</text>
+
+  <!-- Side memory -->
+  <rect x="70" y="875" width="270" height="260" rx="25" fill="#e8e5df" stroke="#aaa69f" class="box"/>
+  <text x="205" y="935" class="title" font-size="27" fill="#454545">Sender memory</text>
+  <text x="205" y="985" class="small" fill="#66615b">Supabase</text>
+  <text x="205" y="1020" class="small" fill="#66615b">previous labels</text>
+  <text x="205" y="1055" class="small" fill="#66615b">importance + action</text>
+  <text x="205" y="1090" class="small" fill="#66615b">advisory context</text>
+  <path d="M340 1010 L395 1010" class="arrow dashed"/>
+
+  <path d="M900 1030 L900 1090" class="arrow"/>
+
+  <!-- Priority guard -->
+  <polygon points="900,1095 1090,1190 900,1285 710,1190" fill="#fff0c9" stroke="#c99732" stroke-width="3"/>
+  <text x="900" y="1170" class="title" font-size="29" fill="#7c5814">Priority guard</text>
+  <text x="900" y="1215" class="small" fill="#8a661d">urgent labels or score &gt;= 0.8?</text>
+
+  <!-- Priority branch -->
+  <path d="M710 1190 L470 1190 L470 1290" class="arrow"/>
+  <text x="570" y="1165" class="label">YES</text>
+  <rect x="190" y="1300" width="560" height="145" rx="30" fill="#ffe0d5" stroke="#c55b35" class="box"/>
+  <text x="470" y="1357" class="title" font-size="29" fill="#80351f">Protect priority email</text>
+  <text x="470" y="1402" class="small" fill="#a3482a">Needs-Reply + IMPORTANT + STARRED</text>
+  <path d="M470 1445 L470 1535 L900 1535" class="arrow"/>
+
+  <!-- Agent branch -->
+  <path d="M1090 1190 L1330 1190 L1330 1290" class="arrow"/>
+  <text x="1215" y="1165" class="label">NO</text>
+  <rect x="1050" y="1300" width="560" height="145" rx="30" fill="#e9e5ff" stroke="#766ce0" class="box"/>
+  <text x="1330" y="1357" class="title" font-size="29" fill="#39318c">Agent decision</text>
+  <text x="1330" y="1402" class="small" fill="#5148b7">LLM tool-calling + sender memory context</text>
+
+  <!-- Tools -->
+  <rect x="970" y="1500" width="220" height="125" rx="24" fill="#ffe0d5" stroke="#c55b35" class="box"/>
+  <text x="1080" y="1548" class="title" font-size="23" fill="#80351f">draft_reply</text>
+  <text x="1080" y="1585" class="small" fill="#a3482a">Gmail Drafts</text>
+  <rect x="1190" y="1500" width="220" height="125" rx="24" fill="#ffe0d5" stroke="#c55b35" class="box"/>
+  <text x="1300" y="1548" class="title" font-size="23" fill="#80351f">flag_for_review</text>
+  <text x="1300" y="1585" class="small" fill="#a3482a">Needs-Reply</text>
+  <rect x="1410" y="1500" width="280" height="125" rx="24" fill="#ffe0d5" stroke="#c55b35" class="box"/>
+  <text x="1550" y="1548" class="title" font-size="23" fill="#80351f">archive_no_action</text>
+  <text x="1550" y="1585" class="small" fill="#a3482a">remove INBOX</text>
+  <path d="M1330 1445 L1330 1480" class="arrow"/>
+
+  <!-- Merge and persistence -->
+  <path d="M1330 1625 L1330 1680 L900 1680" class="arrow"/>
+  <path d="M900 1535 L900 1680" class="arrow"/>
+  <rect x="400" y="1690" width="1000" height="140" rx="30" fill="#f1eee7" stroke="#aaa69f" class="box"/>
+  <text x="900" y="1745" class="title" fill="#454545">Finalize successful outcomes</text>
+  <text x="900" y="1790" class="body" fill="#66615b">Persist processed IDs + update sender memory</text>
+
+  <!-- Retry note -->
+  <path d="M400 1760 L135 1760 L135 740 L390 740" class="arrow dashed"/>
+  <text x="185" y="1260" class="label" transform="rotate(-90 185 1260)">FAILURE - RETRY NEXT RUN</text>
+</svg>

@@ -128,6 +128,7 @@ Classification already determined:
 Labels: {labels}
 Importance score: {importance_score}
 Needs reply (initial assessment): {needs_reply}
+Previous sender memory: {sender_memory}
 
 You have three tools available:
 - draft_reply: use when a genuine human response is expected from the user

@@ -25,3 +25,4 @@ class GraphState(TypedDict):
     raw_emails: list[dict]
     processed: Annotated[list[EmailState], add]
     handled: Annotated[list[dict], add]
+    label_failed_ids: Annotated[list[str], add]

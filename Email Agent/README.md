@@ -34,6 +34,7 @@ This agent automates the sorting, surfaces what's actually important, and drafts
 - **Real archiving** — the `archive_no_action` path genuinely removes handled emails from the inbox via the Gmail API, not just a logged intention
 - **Prompt injection guards** — untrusted email content is explicitly boundaried in every prompt, reducing the risk of an email's content hijacking the agent's behavior
 - **Retry-safe idempotency** — a Supabase-backed tracking layer ensures no email is reclassified or re-drafted across runs, and failed actions are automatically retried rather than silently lost
+- **Sender memory** — the agent remembers the latest labels, importance, and action for each sender and supplies that context during future decisions
 - **Multi-model rate-limit resilience** — automatically falls back across 4 independent free-tier Gemini/Gemma quotas
 - **Fully autonomous scheduling** — runs 6x/day via GitHub Actions on a schedule, plus automatically on every push to catch up on the latest code immediately
 
@@ -54,7 +55,7 @@ Emails can carry multiple labels — e.g., a shortlisting email might be tagged 
 ---
 ## 🏗️ Architecture
 
-![Architecture diagram](screenshots/email_agent_architecture.png)
+![Updated architecture diagram](screenshots/email_agent_architecture_updated.svg)
 
 The agent runs as a scheduled LangGraph pipeline with a genuine agentic decision core: after classification and labeling, an LLM is given real tools and **decides for itself** which action fits each email — this isn't a hardcoded if/else, the model actively reasons and calls a tool via LangChain's function-calling interface. A deterministic safety net protects high-stakes emails from being left to the model's discretion entirely.
 
@@ -70,6 +71,8 @@ The agent runs as a scheduled LangGraph pipeline with a genuine agentic decision
 7. **Mark Processed** — Only emails where the chosen action actually succeeded are recorded in Supabase. Failures are left unmarked, so they're automatically retried on the next scheduled run instead of being silently lost
 
 **Human-in-the-loop stays intact regardless of the agent's choice** — `draft_reply` only ever creates a Gmail draft. Nothing is ever sent automatically.
+
+**Sender memory is advisory, not authoritative** — it helps recognize recurring sender patterns without overriding deterministic priority rules.
 
 **Safety measures beyond the core loop:**
 - **Prompt injection guards** — untrusted email content is wrapped in explicit `<email>` tags with instructions telling the model to treat it as data, not commands
@@ -103,30 +106,73 @@ The agent runs as a scheduled LangGraph pipeline with a genuine agentic decision
 
 ## 📂 Project Structure
 
-```text
-Email Agent/
-├── main.py                    # Entry point
-├── requirements.txt
-├── src/
-│   ├── auth/
-│   │   └── gmail_auth.py      # OAuth refresh-token flow
-│   ├── gmail/
-│   │   ├── fetch.py           # Fetch + parse unread emails
-│   │   ├── labels.py          # Apply Gmail labels
-│   │   └── drafts.py          # Create threaded Gmail drafts
-│   ├── llm/
-│   │   ├── client.py          # Multi-model fallback LLM client
-│   │   └── prompts.py         # Classification + draft prompts
-│   ├── graph/
-│   │   ├── state.py           # LangGraph state schema
-│   │   ├── nodes.py           # All graph nodes
-│   │   ├── edges.py           # Send() routing logic
-│   │   └── build_graph.py     # Compiled graph
-│   └── storage/
-│       └── processed_store.py # Supabase idempotency layer
-└── .github/workflows/
-    └── email_agent.yml        # Scheduled GitHub Actions workflow
-```
+D:\Agentic Projects\
+├── .github/
+│   └── workflows/
+│       └── email_agent.yml
+│
+└── Email Agent/
+    ├── .env                         # Local secrets, ignored by Git
+    ├── .gitignore
+    ├── credentials.json             # Google OAuth credentials, ignored by Git
+    ├── main.py                      # Production entry point
+    ├── requirements.txt
+    ├── README.md
+    ├── token_generation.py          # Generate Gmail refresh token
+    ├── checking_model_tool.py       # Manual model/tool experiment
+    │
+    ├── screenshots/
+    │   ├── email_agent_architecture.png
+    │   ├── email_agent_architecture_updated.svg
+    │   ├── labeled-inbox.png
+    │   └── langgraph_structure.png
+    │
+    ├── supabase/
+    │   └── agent_memory.sql          # Sender-memory table schema
+    │
+    ├── src/
+    │   ├── __init__.py
+    │   │
+    │   ├── auth/
+    │   │   ├── __init__.py
+    │   │   └── gmail_auth.py
+    │   │
+    │   ├── gmail/
+    │   │   ├── __init__.py
+    │   │   ├── fetch.py
+    │   │   ├── labels.py
+    │   │   └── drafts.py
+    │   │
+    │   ├── graph/
+    │   │   ├── __init__.py
+    │   │   ├── state.py
+    │   │   ├── nodes.py
+    │   │   ├── edges.py
+    │   │   ├── tools.py
+    │   │   └── build_graph.py
+    │   │
+    │   ├── llm/
+    │   │   ├── __init__.py
+    │   │   ├── client.py
+    │   │   └── prompts.py
+    │   │
+    │   └── storage/
+    │       ├── __init__.py
+    │       ├── processed_store.py
+    │       └── memory_store.py
+    │
+    ├── tests/
+    │   ├── test_agent_logic.py
+    │   └── test_email_cleanup.py
+    │
+    └── legacy_tests/
+        ├── test_build_graph.py
+        ├── test_client.py
+        ├── test_drafts.py
+        ├── test_fetch.py
+        ├── test_labels.py
+        ├── test_nodes.py
+        └── test_processed_store.py
 
 ---
 
@@ -168,7 +214,8 @@ This opens a browser for one-time authorization and prints your refresh token.
 ### 6. Set Up Supabase
 1. Create a project at [supabase.com](https://supabase.com)
 2. Create a table named `processed_emails` with columns: `id` (text, primary key), `processed_at` (timestamptz, default `now()`)
-3. Copy your Project URL and Secret API key
+3. Run `supabase/agent_memory.sql` in the Supabase SQL editor
+4. Copy your Project URL and Secret API key
 
 ### 7. Configure Environment Variables
 Create a `.env` file:

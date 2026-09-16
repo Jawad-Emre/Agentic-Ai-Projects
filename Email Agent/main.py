@@ -5,17 +5,20 @@ Run via GitHub Actions: scheduled, no manual trigger needed.
 """
 
 from collections import Counter
+import logging
 from src.graph.build_graph import build_graph
 
 
 def main():
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     print("=== Email Agent: Starting run ===")
 
     graph = build_graph()
     result = graph.invoke({
         "raw_emails": [],
         "processed": [],
-        "handled": []
+        "handled": [],
+        "label_failed_ids": [],
     })
 
     unique_processed = len({
