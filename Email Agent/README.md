@@ -106,6 +106,7 @@ The agent runs as a scheduled LangGraph pipeline with a genuine agentic decision
 
 ## 📂 Project Structure
 
+```text
 D:\Agentic Projects\
 ├── .github/
 │   └── workflows/
@@ -173,6 +174,7 @@ D:\Agentic Projects\
         ├── test_labels.py
         ├── test_nodes.py
         └── test_processed_store.py
+    ```
 
 ---
 
