@@ -8,7 +8,7 @@ supply those (avoids hallucinated IDs).
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 from src.gmail.drafts import create_draft_reply
-from src.gmail.labels import apply_labels_to_email
+from src.gmail.labels import apply_labels_to_email, archive_email
 from src.llm.client import get_llm, MODEL_FALLBACK_CHAIN
 from src.llm.prompts import DRAFT_REPLY_PROMPT_TEMPLATE
 
@@ -48,7 +48,7 @@ def build_email_tools(email: dict) -> list:
                 continue
 
         if not draft_text:
-            return "Failed to generate draft after trying all models."
+            raise RuntimeError("Failed to generate draft after trying all models")
 
         drafted_email = {**email, "draft": draft_text.strip()}
         create_draft_reply(drafted_email)
@@ -59,7 +59,10 @@ def build_email_tools(email: dict) -> list:
         return f"Flagged for manual review. Reason: {reasoning}"
 
     def _archive_no_action(reasoning: str) -> str:
-        return f"No action taken. Reason: {reasoning}"
+        if email.get("importance_score", 0) >= 0.8:
+            raise RuntimeError("High-importance email cannot be archived automatically")
+        archive_email(email["id"])
+        return f"Email archived. Reason: {reasoning}"
 
     return [
         StructuredTool.from_function(

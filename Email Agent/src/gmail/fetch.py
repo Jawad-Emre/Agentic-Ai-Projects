@@ -17,13 +17,21 @@ def fetch_unread_emails(max_results: int = 10) -> list[dict]:
     """
     service = get_gmail_service()
 
-    results = service.users().messages().list(
-        userId='me',
-        q='is:unread',
-        maxResults=max_results
-    ).execute()
+    messages = []
+    page_token = None
+    while len(messages) < max_results:
+        results = service.users().messages().list(
+            userId='me',
+            q='is:unread',
+            maxResults=min(100, max_results - len(messages)),
+            pageToken=page_token
+        ).execute()
+        messages.extend(results.get('messages', []))
+        page_token = results.get('nextPageToken')
+        if not page_token:
+            break
 
-    messages = results.get('messages', [])
+    messages = messages[:max_results]
 
     emails = []
     for msg in messages:
@@ -113,7 +121,7 @@ def _normalize_text(text: str) -> str:
 
     text = text.replace('\r\n', '\n').replace('\r', '\n')
     text = re.sub(
-        r'(?i)(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?=[A-Z])',
+        r'(?i:(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?))(?=[A-Z])',
         r'\1 ',
         text,
     )

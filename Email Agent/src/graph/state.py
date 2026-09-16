@@ -18,6 +18,7 @@ class EmailState(TypedDict):
     needs_reply: bool
     reasoning: str
     messages: Annotated[list, add_messages]
+    classification_failed: bool
 
 
 class GraphState(TypedDict):

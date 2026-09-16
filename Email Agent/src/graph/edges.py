@@ -19,4 +19,8 @@ def route_to_classification(state: dict):
 
 def route_to_agent(state: dict):
     """After labels are applied, fan out each email to the agent loop."""
-    return [Send("run_agent_for_email", email) for email in state["processed"]]
+    return [
+        Send("run_agent_for_email", email)
+        for email in state["processed"]
+        if not email.get("classification_failed", False)
+    ]

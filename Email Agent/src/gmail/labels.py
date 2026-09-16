@@ -8,6 +8,7 @@ from src.auth.gmail_auth import get_gmail_service
 
 # Cache: label name -> Gmail label ID, populated once per run
 _label_id_cache: dict[str, str] = {}
+_SYSTEM_LABEL_IDS = {"STARRED", "IMPORTANT", "INBOX"}
 
 
 def get_or_create_label(service, label_name: str) -> str:
@@ -45,12 +46,25 @@ def apply_labels_to_email(email_id: str, label_names: list[str]) -> None:
     Applies one or more labels to a single Gmail message.
     """
     service = get_gmail_service()
-    label_ids = [get_or_create_label(service, name) for name in label_names]
+    label_ids = [
+        name if name in _SYSTEM_LABEL_IDS else get_or_create_label(service, name)
+        for name in label_names
+    ]
 
     service.users().messages().modify(
         userId='me',
         id=email_id,
         body={'addLabelIds': label_ids}
+    ).execute()
+
+
+def archive_email(email_id: str) -> None:
+    """Archives a message by removing Gmail's INBOX system label."""
+    service = get_gmail_service()
+    service.users().messages().modify(
+        userId='me',
+        id=email_id,
+        body={'removeLabelIds': ['INBOX']}
     ).execute()
 
 

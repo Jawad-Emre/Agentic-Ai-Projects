@@ -54,17 +54,18 @@ Emails can carry multiple labels — e.g., a shortlisting email might be tagged 
 
 ![Architecture diagram](screenshots/email_agent_architecture.png)
 
-The agent runs as a scheduled LangGraph pipeline with a genuine agentic decision core: after classification and labeling, an LLM is given real tools (`draft_reply`, `flag_for_review`, `archive_no_action`) and **decides for itself** which action fits each email — this isn't a hardcoded if/else, the model actively chooses and calls the tool via LangChain's function-calling interface.
+The agent runs as a scheduled LangGraph pipeline with a genuine agentic decision core: after classification and labeling, an LLM is given real tools (`draft_reply`, `flag_for_review`, `archive_no_action`) and **decides for itself** which action fits ordinary email. A deterministic priority guard protects urgent categories and high-scoring messages before the LLM can dismiss them.
 
 1. **Fetch Unread** — Pulls unread emails from Gmail via the Gmail API
 2. **Filter Seen** — Checks Supabase to skip emails already processed in a prior run
-3. **Classify** — Each email is classified in parallel (`Send()` fan-out) across 21 labels, an importance score, and a `needs_reply` flag, using a Gemini/Gemma fallback chain
+3. **Classify** — Each email is classified in parallel (`Send()` fan-out) across 21 labels, an importance score, and a `needs_reply` flag, using a Gemini/Gemma fallback chain. Email content is treated as untrusted data in prompts.
 4. **Apply Labels** — Classification results are written back as real Gmail labels
-5. **Agent Decision** — Each email is handed to an LLM bound with three tools. The model reasons about the email and calls exactly one:
+5. **Priority Protection** — `Urgent-Reply-Needed`, `Interview-Invite`, `Shortlisted`, `Offer`, `Finance-Alert`, and scores of 0.8 or higher are marked `Needs-Reply`, starred, and marked important without relying on an LLM decision.
+6. **Agent Decision** — Other emails are handed to an LLM bound with three tools. The model reasons about the email and calls exactly one:
    - `draft_reply` — writes a reply and saves it to Gmail Drafts
    - `flag_for_review` — labels it `Needs-Reply` for manual attention, without drafting anything
-   - `archive_no_action` — takes no action (newsletters, alerts, etc.)
-6. **Mark Processed** — Once handled, the email ID is recorded in Supabase for idempotency across future runs
+    - `archive_no_action` — removes the Gmail `INBOX` label for ordinary mail that needs no action
+7. **Mark Processed** — Only successfully handled email IDs are recorded in Supabase. Failed classifications or actions remain eligible for retry.
 
 **Human-in-the-loop stays intact regardless of the agent's choice** — `draft_reply` only ever creates a Gmail draft. Nothing is ever sent automatically.
 
@@ -137,9 +138,9 @@ cd "Agentic-Ai-Projects/Email Agent"
 
 ### 3. Install Dependencies
 ```bash
-python -m venv venv
-venv\Scripts\activate     # Windows
-pip install -r requirements.txt
+python -m venv .venv
+.venv\Scripts\activate     # Windows
+python -m pip install -r requirements.txt
 ```
 
 ### 4. Set Up Google OAuth
@@ -187,7 +188,9 @@ python main.py
 ## ⚠️ Known Limitations
 
 - **7-day token expiry** — unverified Google OAuth apps require re-authorization weekly. A quick manual `token_generation.py` re-run + secret update is needed periodically.
-- **Free-tier rate limits** — heavy inbox volume can occasionally exhaust all fallback models in a single run; unclassified emails default to a safe `Other` label rather than failing the whole batch.
+- **Free-tier rate limits** — heavy inbox volume can occasionally exhaust all fallback models in a single run; those emails are left unprocessed so a later scheduled run can retry them.
+- **Batch size** — each run fetches up to 10 unread messages, using Gmail pagination when more are available. Remaining messages are handled by later runs.
+- **Priority protection** — important categories and high-scoring messages are starred, marked important, and flagged for review instead of being archived automatically.
 - **No auto-send** — by design. This agent will never send an email without you manually clicking send in Gmail.
 
 ---

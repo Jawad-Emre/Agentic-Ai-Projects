@@ -2,22 +2,36 @@
 Graph nodes for the email agent.
 """
 
-from pydantic import ValidationError
-from src.llm.client import get_llm , MODEL_FALLBACK_CHAIN
+from src.llm.client import get_llm, MODEL_FALLBACK_CHAIN
 from src.llm.prompts import EmailClassification, CLASSIFICATION_PROMPT_TEMPLATE
 from src.graph.state import EmailState
 
 from src.llm.prompts import DRAFT_REPLY_PROMPT_TEMPLATE
 
-from src.gmail.labels import apply_labels_batch
-from src.gmail.drafts import create_draft_reply
+from src.gmail.labels import apply_labels_batch, apply_labels_to_email
 from src.storage.processed_store import mark_as_processed
 from src.gmail.fetch import fetch_unread_emails
 from src.storage.processed_store import filter_unprocessed
 
-from langchain_core.messages import SystemMessage, AIMessage, ToolMessage , HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage
 from src.graph.tools import build_email_tools
 from src.llm.prompts import DECISION_SYSTEM_PROMPT
+
+
+PRIORITY_LABELS = {
+    "Urgent-Reply-Needed",
+    "Interview-Invite",
+    "Shortlisted",
+    "Offer",
+    "Finance-Alert",
+}
+PRIORITY_SCORE_THRESHOLD = 0.8
+
+
+def is_priority_email(email: dict) -> bool:
+    return bool(PRIORITY_LABELS.intersection(email.get("labels", []))) or (
+        email.get("importance_score", 0) >= PRIORITY_SCORE_THRESHOLD
+    )
 
 
 # Caps concurrent Gemini calls to stay under free-tier per-minute token limits.
@@ -45,7 +59,8 @@ def classify_and_score(email: dict) -> dict:
             print(f"  Model '{model_name}' failed, trying next... ({str(e)[:80]})")
             continue
 
-    if result is None:
+    classification_failed = result is None
+    if classification_failed:
         print(f"⚠️ All models failed for '{email['subject']}': {last_error}")
         result = EmailClassification(
             labels=["Other"], importance_score=0.3, needs_reply=False,
@@ -55,6 +70,7 @@ def classify_and_score(email: dict) -> dict:
     classified: EmailState = {
         **email, "labels": result.labels, "importance_score": result.importance_score,
         "needs_reply": result.needs_reply, "reasoning": result.reasoning,
+        "classification_failed": classification_failed,
     }
     return {"processed": [classified]}
 
@@ -74,6 +90,10 @@ def run_agent_for_email(email: dict) -> dict:
     Kept as one node because per-email state (messages) doesn't
     survive being split across separate graph nodes in this topology.
     """
+    if is_priority_email(email):
+        apply_labels_to_email(email["id"], ["Needs-Reply", "IMPORTANT", "STARRED"])
+        return {"handled": [{**email, "action": "priority_review", "success": True}]}
+
     prompt = DECISION_SYSTEM_PROMPT.format(
         sender=email["sender"],
         subject=email["subject"],
@@ -104,23 +124,37 @@ def run_agent_for_email(email: dict) -> dict:
 
     if response is None or not getattr(response, "tool_calls", None):
         print(f"⚠️ No action decided for '{email.get('subject', 'UNKNOWN')}': {last_error}")
-        return {"handled": [{**email, "action": "none"}]}
+        return {"handled": [{
+            **email,
+            "action": "none",
+            "success": False,
+            "error": str(last_error or "No tool call returned"),
+        }]}
 
     tool_map = {t.name: t for t in tools}
-    action_taken = "none"
-    for call in response.tool_calls:
-        tool_fn = tool_map.get(call["name"])
-        if tool_fn:
+    try:
+        action_taken = "none"
+        for call in response.tool_calls:
+            tool_fn = tool_map.get(call["name"])
+            if tool_fn is None:
+                raise RuntimeError(f"Unknown tool returned by model: {call['name']}")
             tool_fn.invoke(call["args"])
             action_taken = call["name"]
-
-    return {"handled": [{**email, "action": action_taken}]}
+        return {"handled": [{**email, "action": action_taken, "success": True}]}
+    except Exception as error:
+        print(f"⚠️ Action failed for '{email.get('subject', 'UNKNOWN')}': {error}")
+        return {"handled": [{
+            **email, "action": "none", "success": False, "error": str(error),
+        }]}
 
 
 
 def apply_labels_node(state: dict) -> dict:
     """Writes classification labels back to Gmail for all processed emails."""
-    apply_labels_batch(state["processed"])
+    apply_labels_batch(
+        email for email in state["processed"]
+        if not email.get("classification_failed", False)
+    )
     return state
 
 
@@ -131,7 +165,11 @@ def finalize_node(state: dict) -> dict:
     Deduplicates IDs first — Send() fan-out or Gmail API quirks can
     occasionally produce the same email ID more than once in one run.
     """
-    email_ids = list({e["id"] for e in state["processed"]})  # set removes dupes
+    email_ids = list({
+        email["id"]
+        for email in state.get("handled", [])
+        if email.get("success") is True
+    })
     mark_as_processed(email_ids)
     print(f"Marked {len(email_ids)} emails as processed.")
     return state
